@@ -2,6 +2,8 @@ library(data.table)
 library(stringr)
 library(RPostgres)
 library(matrixStats)
+library(caret)
+library(xgboost)
 
 source(".hidden.R")
 
@@ -148,7 +150,7 @@ s1[result != "D"][order(result_prob_adj)][1]
 # Match ID 715, game week 52 Arlington 0-1 Houston, away win probability (adjusted to 100% book) of 5.58%
 
 
-# model season 2-------------------------------------------------------------------
+# season 2 add features-------------------------------------------------------------------
 
 setDT(s2)
 
@@ -237,4 +239,53 @@ allDF[, ASAdvL6_Avg := rowMeans2(as.matrix(.SD), na.rm = TRUE),
 allDF[, AGDiffL6_Avg := rowMeans2(as.matrix(.SD), na.rm = TRUE),
       .SDcols = c("AGDiff_L1", "AGDiff_L2", "AGDiff_L3", "AGDiff_L4", "AGDiff_L5", "AGDiff_L6")]
 
+allDF[, `:=` (HmShotsAdv = NULL,
+              HmGlDiff = NULL,
+              AwShotsAdv = NULL,
+              AwGlDiff = NULL)]
 
+allDF[, `:=` (hshots_adv = NULL,
+              hgdiff = NULL,
+              ashots_adv = NULL,
+              agdiff = NULL)]
+      
+allDF[, result := factor(result, levels = c("H", "D", "A"))]
+
+
+# train models ------------------------------------------------------------
+
+ssn1 <- allDF[season_id == 1]
+ssn2 <- allDF[season_id == 2]
+
+train.control <- trainControl(method = "repeatedcv",
+                              number = 5,
+                              repeats = 5,
+                              verboseIter = TRUE,
+                              classProbs = TRUE, 
+                              summaryFunction = mnLogLoss)
+
+
+tune.grid <- expand.grid(eta = c(0.001, 0.01, 0.1),
+                         nrounds = c(100, 150),
+                         max_depth = 4:6,
+                         min_child_weight = c(2.0, 2.5, 3.0),
+                         colsample_bytree = c(0.75, 1.0),
+                         gamma = c(0, 1),
+                         subsample = 1.0)
+
+set.seed(101)
+
+xgbTreeModel <- train(result ~ 
+                         odds_home_prob_adj +
+                         odds_away_prob_adj +
+                         (HSAdvL6_Avg * ASAdvL6_Avg) +
+                         (HGDiffL6_Avg * AGDiffL6_Avg),
+                       data = ssn1,
+                       method = "xgbTree",
+                       metric = "logLoss",
+                       tuneGrid = tune.grid,
+                       trControl = train.control)
+
+saveRDS(xgbTreeModel, "xgbTreeModel.RDS")
+
+varImp(xgbTreeModel)
