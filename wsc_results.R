@@ -289,3 +289,278 @@ xgbTreeModel <- train(result ~
 saveRDS(xgbTreeModel, "xgbTreeModel.RDS")
 
 varImp(xgbTreeModel)
+
+print(xgbTreeModel)
+
+xgbTreeModel <- readRDS("xgbTreeModel.RDS")
+
+# The final values used for the model were nrounds = 150, max_depth = 4, eta = 0.01, gamma = 1, 
+# colsample_bytree = 0.75, min_child_weight = 3 and subsample = 1.
+
+xgbTreeModel
+
+
+# predict model on season 2 -----------------------------------------------
+
+ssn2[, pred_xgb := predict(xgbTreeModel, newdata = ssn2, type = "raw")]
+
+ssn2[, .(result, pred_xgb)]
+
+table(ssn2$result)
+table(ssn2$pred_xgb)
+
+confusionMatrix(ssn2$result, ssn2$pred_xgb)
+
+prob_xgb <- predict(xgbTreeModel, newdata = ssn2, type = "prob")
+
+colnames(prob_xgb) <- c("HW_XGB_Prob", "Draw_XGB_Prob", "AW_XGB_Prob")
+
+ssn2Preds <- cbind(ssn2, prob_xgb)
+
+# correlations between model predictions and odds probabilities
+
+cor(ssn2Preds[, .(odds_home_prob_adj, HW_XGB_Prob, odds_draw_prob, Draw_XGB_Prob, odds_away_prob, AW_XGB_Prob)])
+
+# Odds based predictions
+
+ssn2Preds[, odds_pred_result := fifelse((odds_home_prob_adj > odds_draw_prob_adj) & 
+                                          (odds_home_prob_adj > odds_away_prob_adj),"H",
+          fifelse((odds_away_prob_adj > odds_draw_prob_adj) & 
+                         (odds_away_prob_adj > odds_home_prob_adj), "A", "D"))]
+
+
+
+# goals models for sim tables ------------------------------------------------------------
+
+set.seed(101)
+
+xgbSimHGMod <- train(home_score ~ 
+                        HW_XGB_Prob +
+                        AW_XGB_Prob +
+                        result,
+                      data = ssn2Preds,
+                      method = "xgbTree",
+                      metric = "RMSE",
+                      tuneGrid = expand.grid(eta = c(0.01),
+                                             nrounds = c(150),
+                                             max_depth = 4,
+                                             min_child_weight = c(2.0),
+                                             colsample_bytree = c(0.75),
+                                             gamma = 1.0,
+                                             subsample = 1.0),
+                      trControl = trainControl(method = "repeatedcv",
+                                               number = 5,
+                                               repeats = 3,
+                                               verboseIter = TRUE))
+
+saveRDS(xgbSimHGMod, "xgb_Sim_HG_Model.RDS")
+
+
+set.seed(101)
+
+xgbSimAGMod <- train(away_score ~ 
+                       HW_XGB_Prob +
+                       AW_XGB_Prob +
+                       result,
+                     data = ssn2Preds,
+                     method = "xgbTree",
+                     metric = "RMSE",
+                     tuneGrid = expand.grid(eta = c(0.01),
+                                            nrounds = c(150),
+                                            max_depth = 4,
+                                            min_child_weight = c(2.0),
+                                            colsample_bytree = c(0.75),
+                                            gamma = 1.0,
+                                            subsample = 1.0),
+                     trControl = trainControl(method = "repeatedcv",
+                                              number = 5,
+                                              repeats = 3,
+                                              verboseIter = TRUE))
+
+
+saveRDS(xgbSimAGMod, "xgb_Sim_AG_Model.RDS")
+
+simS2 <- ssn2Preds[, .(season_id, game_week, match_id, home_team_id, home_team, away_team_id, away_team,
+                       HW_XGB_Prob, Draw_XGB_Prob, AW_XGB_Prob)]
+
+# simulate season 2 -------------------------------------------------------
+
+simS2 <- ssn2Preds[, .(season_id, game_week, match_id, home_team_id, home_team, away_team_id, away_team,
+                       HW_XGB_Prob, Draw_XGB_Prob, AW_XGB_Prob)]
+
+# set number of seasons to simulate
+ns <- 100
+
+simRuns <- list()
+
+for(k in 1:ns) {
+  
+  simres <- c()
+  
+  for(i in seq_along(ssn2Preds$result)){
+    simres[i] <- sample(c("H", "D", "A"), 
+                        size = 1, 
+                        prob = c(ssn2Preds$HW_XGB_Prob[[i]], ssn2Preds$Draw_XGB_Prob[[i]], ssn2Preds$AW_XGB_Prob[[i]]))
+  }
+  
+  simRuns[[k]] <- factor(simres, levels = c("H", "D", "A"))
+}
+
+
+
+# Create data.table to hold result of simulations
+
+finalTables <- setNames(data.table(matrix(nrow = 0, ncol = 6)), c("Team", "P", "Pts", "GD", "GF", "simID"))
+
+allTeams <- unique(ssn2Preds$home_team)
+
+# Iterate through sims
+
+for(s in 1:ns){
+  
+  lgeTable <- data.table(Team = allTeams,
+                         P = 0L, W = 0L, D = 0L, L = 0L, GF = 0, GA = 0, GD = 0, Pts = 0L)
+  
+  #setorder(lgeTable, -Pts, -GD, -GF, Team)
+  
+  simS2[, result := simRuns[[s]]]
+  
+  simS2[, `:=` (home_score = predict(xgbSimHGMod, newdata = simS2, type = "raw"),
+                away_score = predict(xgbSimAGMod, newdata = simS2, type = "raw"))]
+  
+  simS2[, `:=` (home_gd = home_score - away_score,
+                away_gd = away_score - home_score,
+                home_pts = fifelse(result == "H", 3L,
+                                   fifelse(result == "D", 1L, 0)),
+                away_pts = fifelse(result == "H", 0, 
+                                   fifelse(result == "D", 1L, 3L)))]
+  
+  #fwrite(ssn2Preds, paste0("sim_", s, "_results.csv"))
+  #cat(paste0("Pre sim run: ", s, " first result ", ssn2Preds$result[[1]], "\n"))
+             
+  
+  for(wk in 1:max(simS2$game_week)){
+    games <- simS2[game_week == wk]
+    
+    for(i in seq_along(games$match_id)){
+      lgeTable[Team == games$home_team[i], `:=` (
+        P = P + 1,
+        W = fifelse(games$result[i] == "H", W + 1, W),
+        D = fifelse(games$result[i] == "D", D + 1, D),
+        L = fifelse(games$result[i] == "A", L + 1, L),
+        GF = games$home_score[i] + GF,
+        GA = games$away_score[i] + GA,
+        GD = games$home_gd[i] + GD,
+        Pts = games$home_pts[i] + Pts)]
+    }
+    for(i in seq_along(games$match_id)){
+      lgeTable[Team == games$away_team[i], `:=` (
+        P = P + 1,
+        W = fifelse(games$result[i] == "A", W + 1, W),
+        D = fifelse(games$result[i] == "D", D + 1, D),
+        L = fifelse(games$result[i] == "H", L + 1, L),
+        GF = games$away_score[i] + GF,
+        GA = games$home_score[i] + GA,
+        GD = games$away_gd[i] + GD,
+        Pts = games$away_pts[i] + Pts)]
+    }
+    
+    # setorder(lgeTable, -Pts, -GD, -GF, Team)
+    # 
+    # df <- as.data.frame(lgeTable)
+    # weeklyTables[[wk]] <- df
+    
+    
+  }
+  
+  #fwrite(lgeTable, paste0("sim_", s, "_table.csv"))
+  rankTable <- lgeTable[, .(Team, P, Pts, GD, GF)]
+  rankTable[, simID := s]
+  
+  #cat(paste0("First team this simulation ", rankTable[1, .(Team, Pts)], "\n", "\n"))
+  
+  finalTables <- rbindlist(list(finalTables, rankTable), use.names = TRUE, fill = TRUE)
+}
+
+finalTables[, Pos := frank(-Pts, ties.method = "min"), by = simID]
+
+finalTables[order(Team, simID)]
+
+
+# Final Position Probabilities --------------------------------------------
+
+posCounts <- finalTables[, .(Count = .N,
+                             Sim_Runs = ns), by = .(Team, Pos)][order(Pos, -Count)]
+
+posCounts[, Pos_Prob := round(Count / Sim_Runs * 100, 3)]
+posCounts
+
+library(ggplot2)
+
+ggplot(posCounts) +
+  geom_col(aes(factor(Pos), Pos_Prob, fill = Pos_Prob)) +
+  labs(title = "Probability of Team finishing in each position", fill = 'Probability') +
+  facet_wrap(~ Team, ncol = 4) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Final League Position") +
+  ylab("Probability of finishing in nth position")
+## try tibbles
+
+# library(tidyverse)
+# 
+# finalTables <- tibble(finalTables)
+# finalTables$Team <- as.character(finalTables$Team)
+# 
+# for(s in 1:ns){
+#   
+#   ssn2Preds <- as_tibble(ssn2Preds)
+#   
+#   lgeTable <- tibble(Team = allTeams,
+#                          P = 0, W = 0, D = 0, L = 0, GF = 0, GA = 0, GD = 0, Pts = 0)
+#   
+#   ssn2Preds$result <- simRuns[[s]]
+#   
+#   for(wk in 1:max(ssn2Preds$game_week)){
+#     games <- ssn2Preds %>% filter(game_week == wk)
+#     
+#     for(i in seq_along(games$match_id)){
+#       lgeTable %>% 
+#         filter(Team == games$home_team[i]) %>% 
+#         mutate(P = P + 1,
+#                W = if_else(games$result[i] == "H", W + 1, W),
+#                D = if_else(games$result[i] == "D", D + 1, D),
+#                L = if_else(games$result[i] == "A", L + 1, L),
+#                GF = games$home_score[i] + GF,
+#                GA = games$away_score[i] + GA,
+#                GD = games$home_gd[i] + GD,
+#                Pts = games$home_pts[i] + Pts)
+#         
+#     }
+#     
+#     for(i in seq_along(games$match_id)){
+#       lgeTable %>% 
+#         filter(Team == games$away_team[i]) %>% 
+#         mutate(P = P + 1,
+#                W = if_else(games$result[i] == "A", W + 1, W),
+#                D = if_else(games$result[i] == "D", D + 1, D),
+#                L = if_else(games$result[i] == "H", L + 1, L),
+#                GF = games$away_score[i] + GF,
+#                GA = games$home_score[i] + GA,
+#                GD = games$away_gd[i] + GD,
+#                Pts = games$away_pts[i] + Pts)
+#       
+#       }
+#     
+#     
+#   }
+#   
+#   rankTable <- lgeTable %>% select(Team, P, Pts, GD, GF)
+#   rankTable$simID <- s
+#   
+#   finalTables <- bind_rows(finalTables, rankTable)
+# }
+# 
+# setDT(finalTables)
+# 
+# finalTables
+# 
