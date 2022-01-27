@@ -504,63 +504,18 @@ ggplot(posCounts) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   xlab("Final League Position") +
   ylab("Probability of finishing in nth position")
-## try tibbles
 
-# library(tidyverse)
-# 
-# finalTables <- tibble(finalTables)
-# finalTables$Team <- as.character(finalTables$Team)
-# 
-# for(s in 1:ns){
-#   
-#   ssn2Preds <- as_tibble(ssn2Preds)
-#   
-#   lgeTable <- tibble(Team = allTeams,
-#                          P = 0, W = 0, D = 0, L = 0, GF = 0, GA = 0, GD = 0, Pts = 0)
-#   
-#   ssn2Preds$result <- simRuns[[s]]
-#   
-#   for(wk in 1:max(ssn2Preds$game_week)){
-#     games <- ssn2Preds %>% filter(game_week == wk)
-#     
-#     for(i in seq_along(games$match_id)){
-#       lgeTable %>% 
-#         filter(Team == games$home_team[i]) %>% 
-#         mutate(P = P + 1,
-#                W = if_else(games$result[i] == "H", W + 1, W),
-#                D = if_else(games$result[i] == "D", D + 1, D),
-#                L = if_else(games$result[i] == "A", L + 1, L),
-#                GF = games$home_score[i] + GF,
-#                GA = games$away_score[i] + GA,
-#                GD = games$home_gd[i] + GD,
-#                Pts = games$home_pts[i] + Pts)
-#         
-#     }
-#     
-#     for(i in seq_along(games$match_id)){
-#       lgeTable %>% 
-#         filter(Team == games$away_team[i]) %>% 
-#         mutate(P = P + 1,
-#                W = if_else(games$result[i] == "A", W + 1, W),
-#                D = if_else(games$result[i] == "D", D + 1, D),
-#                L = if_else(games$result[i] == "H", L + 1, L),
-#                GF = games$away_score[i] + GF,
-#                GA = games$home_score[i] + GA,
-#                GD = games$away_gd[i] + GD,
-#                Pts = games$away_pts[i] + Pts)
-#       
-#       }
-#     
-#     
-#   }
-#   
-#   rankTable <- lgeTable %>% select(Team, P, Pts, GD, GF)
-#   rankTable$simID <- s
-#   
-#   finalTables <- bind_rows(finalTables, rankTable)
-# }
-# 
-# setDT(finalTables)
-# 
-# finalTables
-# 
+
+contenders <- posCounts[Pos == 1 & Count > 0]
+
+contenders
+
+ggplot(contenders) +
+  geom_col(aes(Team, Pos_Prob, fill = Pos_Prob)) +
+  labs(title = "Title Contenders Win Probability", fill = 'Probability') +
+  geom_label(aes(Team, Pos_Prob, label = paste0(Pos_Prob, "%"))) +
+  #facet_wrap(~ Team, ncol = 2) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("Team") +
+  ylab("Probability of finishing in nth position")
+
