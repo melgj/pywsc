@@ -183,6 +183,70 @@ s2[, result_prob_adj := fifelse(result == "H", odds_home_prob_adj,
 
 s2
 
+# Season 2 table
+
+allTeams <- unique(s2$home_team)
+
+lgeTable <- data.table(Team = allTeams,
+                       P = 0L, W = 0L, D = 0L, L = 0L, GF = 0L, GA = 0L, GD = 0L, Pts = 0L)
+
+setorder(lgeTable, -Pts, -GD, -GF, Team)
+lgeTable
+
+weeklyTablesS2 <- list()
+
+title_won <-  0
+
+## Update season 2 Table by match week
+
+for(wk in 1:max(s2$game_week)){
+  games <- s2[game_week == wk,]
+  for(i in seq_along(games$match_id)){
+    lgeTable[Team == games$home_team[i], `:=` (
+      P = P + 1,
+      W = fifelse(games$result[i] == "H", W + 1, W),
+      D = fifelse(games$result[i] == "D", D + 1, D),
+      L = fifelse(games$result[i] == "A", L + 1, L),
+      GF = games$home_score[i] + GF,
+      GA = games$away_score[i] + GA,
+      GD = games$home_gd[i] + GD,
+      Pts = games$home_pts[i] + Pts)]
+  }
+  for(i in seq_along(games$match_id)){
+    lgeTable[Team == games$away_team[i], `:=` (
+      P = P + 1,
+      W = fifelse(games$result[i] == "A", W + 1, W),
+      D = fifelse(games$result[i] == "D", D + 1, D),
+      L = fifelse(games$result[i] == "H", L + 1, L),
+      GF = games$away_score[i] + GF,
+      GA = games$home_score[i] + GA,
+      GD = games$away_gd[i] + GD,
+      Pts = games$away_pts[i] + Pts)]
+  }
+  
+  
+  setorder(lgeTable, -Pts, -GD, -GF, Team)
+  
+  df <- as.data.frame(lgeTable)
+  weeklyTablesS2[[wk]] <- df
+  
+  max_points <- (max(s2$game_week) - wk) * 3
+  
+  if((lgeTable$Pts[[2]] + max_points < lgeTable$Pts[[1]]) & title_won == 0){
+    title_won <- 1
+    wkWon <- wk
+  }
+  
+  #Sys.sleep(1)
+  
+}
+
+cat(paste0(lgeTable$Team[[1]], " won the league after game week ", wkWon))
+
+names(weeklyTablesS2) <- paste0("Week_", 1:54, "_Table")
+
+weeklyTablesS2$Week_54_Table
+
 # join seasons 1 and 2
 
 slst <- list(s1, s2)
@@ -252,55 +316,9 @@ allDF[, `:=` (hshots_adv = NULL,
 allDF[, result := factor(result, levels = c("H", "D", "A"))]
 
 
-# train models ------------------------------------------------------------
-
-ssn1 <- allDF[season_id == 1]
-ssn2 <- allDF[season_id == 2]
-
-train.control <- trainControl(method = "repeatedcv",
-                              number = 5,
-                              repeats = 5,
-                              verboseIter = TRUE,
-                              classProbs = TRUE, 
-                              summaryFunction = mnLogLoss)
-
-
-tune.grid <- expand.grid(eta = c(0.001, 0.01, 0.1),
-                         nrounds = c(100, 150),
-                         max_depth = 4:6,
-                         min_child_weight = c(2.0, 2.5, 3.0),
-                         colsample_bytree = c(0.75, 1.0),
-                         gamma = c(0, 1),
-                         subsample = 1.0)
-
-set.seed(101)
-
-xgbTreeModel <- train(result ~ 
-                         odds_home_prob_adj +
-                         odds_away_prob_adj +
-                         (HSAdvL6_Avg * ASAdvL6_Avg) +
-                         (HGDiffL6_Avg * AGDiffL6_Avg),
-                       data = ssn1,
-                       method = "xgbTree",
-                       metric = "logLoss",
-                       tuneGrid = tune.grid,
-                       trControl = train.control)
-
-saveRDS(xgbTreeModel, "xgbTreeModel.RDS")
-
-varImp(xgbTreeModel)
-
-print(xgbTreeModel)
+# predict model on season 2 -----------------------------------------------
 
 xgbTreeModel <- readRDS("xgbTreeModel.RDS")
-
-# The final values used for the model were nrounds = 150, max_depth = 4, eta = 0.01, gamma = 1, 
-# colsample_bytree = 0.75, min_child_weight = 3 and subsample = 1.
-
-xgbTreeModel
-
-
-# predict model on season 2 -----------------------------------------------
 
 ssn2[, pred_xgb := predict(xgbTreeModel, newdata = ssn2, type = "raw")]
 
@@ -330,66 +348,16 @@ ssn2Preds[, odds_pred_result := fifelse((odds_home_prob_adj > odds_draw_prob_adj
 
 
 
-# goals models for sim tables ------------------------------------------------------------
-
-set.seed(101)
-
-xgbSimHGMod <- train(home_score ~ 
-                        HW_XGB_Prob +
-                        AW_XGB_Prob +
-                        result,
-                      data = ssn2Preds,
-                      method = "xgbTree",
-                      metric = "RMSE",
-                      tuneGrid = expand.grid(eta = c(0.01),
-                                             nrounds = c(150),
-                                             max_depth = 4,
-                                             min_child_weight = c(2.0),
-                                             colsample_bytree = c(0.75),
-                                             gamma = 1.0,
-                                             subsample = 1.0),
-                      trControl = trainControl(method = "repeatedcv",
-                                               number = 5,
-                                               repeats = 3,
-                                               verboseIter = TRUE))
-
-saveRDS(xgbSimHGMod, "xgb_Sim_HG_Model.RDS")
-
-
-set.seed(101)
-
-xgbSimAGMod <- train(away_score ~ 
-                       HW_XGB_Prob +
-                       AW_XGB_Prob +
-                       result,
-                     data = ssn2Preds,
-                     method = "xgbTree",
-                     metric = "RMSE",
-                     tuneGrid = expand.grid(eta = c(0.01),
-                                            nrounds = c(150),
-                                            max_depth = 4,
-                                            min_child_weight = c(2.0),
-                                            colsample_bytree = c(0.75),
-                                            gamma = 1.0,
-                                            subsample = 1.0),
-                     trControl = trainControl(method = "repeatedcv",
-                                              number = 5,
-                                              repeats = 3,
-                                              verboseIter = TRUE))
-
-
-saveRDS(xgbSimAGMod, "xgb_Sim_AG_Model.RDS")
-
-simS2 <- ssn2Preds[, .(season_id, game_week, match_id, home_team_id, home_team, away_team_id, away_team,
-                       HW_XGB_Prob, Draw_XGB_Prob, AW_XGB_Prob)]
-
 # simulate season 2 -------------------------------------------------------
 
 simS2 <- ssn2Preds[, .(season_id, game_week, match_id, home_team_id, home_team, away_team_id, away_team,
                        HW_XGB_Prob, Draw_XGB_Prob, AW_XGB_Prob)]
 
+xgbSimHGMod <- readRDS("xgb_Sim_HG_Model.RDS")
+xgbSimAGMod <- readRDS("xgb_Sim_AG_Model.RDS")
+
 # set number of seasons to simulate
-ns <- 100
+ns <- 200
 
 simRuns <- list()
 
@@ -465,19 +433,13 @@ for(s in 1:ns){
         Pts = games$away_pts[i] + Pts)]
     }
     
-    # setorder(lgeTable, -Pts, -GD, -GF, Team)
-    # 
-    # df <- as.data.frame(lgeTable)
-    # weeklyTables[[wk]] <- df
-    
     
   }
   
-  #fwrite(lgeTable, paste0("sim_", s, "_table.csv"))
   rankTable <- lgeTable[, .(Team, P, Pts, GD, GF)]
   rankTable[, simID := s]
   
-  #cat(paste0("First team this simulation ", rankTable[1, .(Team, Pts)], "\n", "\n"))
+  cat(paste0("Completed Simulation ", s, " of ", ns, "\n"))
   
   finalTables <- rbindlist(list(finalTables, rankTable), use.names = TRUE, fill = TRUE)
 }
@@ -488,6 +450,25 @@ finalTables[order(Team, simID)]
 
 
 # Final Position Probabilities --------------------------------------------
+predFinalTable <- finalTables[, .(Avg_Pts = sum(Pts) / ns), by = Team][order(-Avg_Pts)]
+
+predFinalTable[, Pred_Rank := frank(-Avg_Pts, ties.method = "min")]
+
+predFinalTable
+
+# Compare Predicted Rank with Actual Rank of Season 2
+
+
+setDT(weeklyTablesS2$Week_54_Table)
+weeklyTablesS2$Week_54_Table$Pos <-  frank(weeklyTablesS2$Week_54_Table, -Pts, -GD, -GF, Team, ties.method = "min")
+setorder(weeklyTablesS2$Week_54_Table, Pos)
+dfCheck <- merge.data.table(weeklyTablesS2$Week_54_Table, predFinalTable, by = "Team")
+setorder(dfCheck, Pos)
+
+dfCheck
+sum(dfCheck$Pos == dfCheck$Pred_Rank)
+
+# Get team finish position counts
 
 posCounts <- finalTables[, .(Count = .N,
                              Sim_Runs = ns), by = .(Team, Pos)][order(Pos, -Count)]
