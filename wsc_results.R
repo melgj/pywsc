@@ -460,13 +460,13 @@ predFinalTable
 
 
 setDT(weeklyTablesS2$Week_54_Table)
-weeklyTablesS2$Week_54_Table$Pos <-  frank(weeklyTablesS2$Week_54_Table, -Pts, -GD, -GF, Team, ties.method = "min")
+weeklyTablesS2$Week_54_Table$Pos <- frank(weeklyTablesS2$Week_54_Table, -Pts, -GD, -GF, Team, ties.method = "min")
 setorder(weeklyTablesS2$Week_54_Table, Pos)
 dfCheck <- merge.data.table(weeklyTablesS2$Week_54_Table, predFinalTable, by = "Team")
 setorder(dfCheck, Pos)
 
 dfCheck
-sum(dfCheck$Pos == dfCheck$Pred_Rank)
+
 
 # Get team finish position counts
 
@@ -498,5 +498,5 @@ ggplot(contenders) +
   #facet_wrap(~ Team, ncol = 2) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   xlab("Team") +
-  ylab("Probability of finishing in nth position")
+  ylab("Probability of Winning League")
 
