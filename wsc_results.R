@@ -320,6 +320,8 @@ allDF[, result := factor(result, levels = c("H", "D", "A"))]
 
 xgbTreeModel <- readRDS("xgbTreeModel.RDS")
 
+ssn2 <- allDF[season_id == 2]
+
 ssn2[, pred_xgb := predict(xgbTreeModel, newdata = ssn2, type = "raw")]
 
 ssn2[, .(result, pred_xgb)]
@@ -486,6 +488,8 @@ ggplot(posCounts) +
   xlab("Final League Position") +
   ylab("Probability of finishing in nth position")
 
+
+# title winning probabilities of teams with at least one title season in simulations
 
 contenders <- posCounts[Pos == 1 & Count > 0]
 
