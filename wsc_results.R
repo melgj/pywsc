@@ -494,7 +494,7 @@ ggplot(posCounts) +
   geom_col(aes(factor(Pos), Pos_Prob, fill = Pos_Prob)) +
   labs(title = "Probability of Team finishing in each position", fill = 'Probability') +
   facet_wrap(~ Team, ncol = 4) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 5)) +
   xlab("Final League Position") +
   ylab("Probability of finishing in nth position")
 
@@ -553,8 +553,8 @@ s1_XG[, Net_GoalDiff_v_XGDiff := round((homeXG_for_diff - homeXG_against_diff) +
 
 ggplot(s1_XG) +
   geom_col(aes(reorder(Team, Net_GoalDiff_v_XGDiff), Net_GoalDiff_v_XGDiff, fill = Net_GoalDiff_v_XGDiff)) +
-  labs(title = "Season 1 Net Goal Difference vs Expected Net Goal Difference", fill = 'Probability') +
-  geom_label(aes(Team, Net_GoalDiff_v_XGDiff, label = Net_GoalDiff_v_XGDiff)) +
+  labs(title = "Season 1 Net Goal Difference vs Expected Net Goal Difference", fill = "Net GDiff - Exp GDiff") +
+  geom_label(aes(Team, Net_GoalDiff_v_XGDiff, label = Net_GoalDiff_v_XGDiff), size = 2) +
   xlab("Team") +
   ylab("Net Goal Diff vs XG Net Goal Diff") +
   coord_flip()
