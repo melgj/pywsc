@@ -45,7 +45,7 @@ print(xgbTreeModel)
 
 # goals models for sim tables ------------------------------------------------------------
 
-# These models are simply to produce goal scored/difference values to break ties in the season simulations
+# These models are simply to produce goal scored/difference values to break final table ties in the season simulations
 # for the xgboost Home/Away/Draw predictive model. They use post match result variable so have no predictive value
 
 set.seed(101)

@@ -329,7 +329,7 @@ ssn2[, .(result, pred_xgb)]
 table(ssn2$result)
 table(ssn2$pred_xgb)
 
-confusionMatrix(ssn2$result, ssn2$pred_xgb)
+confusionMatrix(ssn2$pred_xgb, ssn2$result)
 
 prob_xgb <- predict(xgbTreeModel, newdata = ssn2, type = "prob")
 
@@ -348,6 +348,9 @@ ssn2Preds[, odds_pred_result := fifelse((odds_home_prob_adj > odds_draw_prob_adj
           fifelse((odds_away_prob_adj > odds_draw_prob_adj) & 
                          (odds_away_prob_adj > odds_home_prob_adj), "A", "D"))]
 
+ssn2Preds$odds_pred_result <- factor(ssn2Preds$odds_pred_result, levels = c("H", "D", "A"))
+
+confusionMatrix(ssn2Preds$odds_pred_result, ssn2Preds$result)
 
 
 # simulate season 2 -------------------------------------------------------
@@ -448,10 +451,17 @@ for(s in 1:ns){
 
 finalTables[, Pos := frank(-Pts, ties.method = "min"), by = simID]
 
-finalTables[order(Team, simID)]
+#finalTables[order(Team, simID)]
+
+setorder(finalTables, Team, simID)
+
+saveRDS(finalTables, "final_sim_tables.RDS")
 
 
 # Final Position Probabilities --------------------------------------------
+
+finalTables <- readRDS("final_sim_tables.RDS")
+
 predFinalTable <- finalTables[, .(Avg_Pts = sum(Pts) / ns), by = Team][order(-Avg_Pts)]
 
 predFinalTable[, Pred_Rank := frank(-Avg_Pts, ties.method = "min")]
@@ -503,4 +513,49 @@ ggplot(contenders) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   xlab("Team") +
   ylab("Probability of Winning League")
+
+
+
+# expected goals season 1----------------------------------------------------------
+
+# Create variables for match shots/goals
+
+s1[, `:=` (match_shots = home_shots + away_shots,
+           match_goals = home_score + away_score)]
+
+# calculate season 1 shots per goal and home/away match XG
+
+shots_per_goal <- round(sum(s1$match_shots / sum(s1$match_goals)),2)
+
+s1[, `:=` (homeXG = round(home_shots / shots_per_goal, 2),
+           awayXG = round(away_shots / shots_per_goal, 2))]
+
+s1[, `:=` (homeXG_diff = round(home_score - homeXG, 2),
+           awayXG_diff = round(away_score - awayXG, 2))]
+
+s1_homeXG <- s1[, .(s1_hXGF_diff = sum(homeXG_diff),
+       s1_hXGA_diff = sum(awayXG_diff)),
+   by = home_team][order(s1_hXGF_diff)]
+
+s1_awayXG <- s1[, .(s1_aXGF_diff = sum(awayXG_diff),
+       s1_aXGA_diff = sum(homeXG_diff)),
+   by = away_team][order(s1_aXGF_diff)]
+
+s1_XG <- merge.data.table(s1_homeXG, s1_awayXG, by.x = "home_team", by.y = "away_team")
+
+setnames(s1_XG, c("home_team", "s1_hXGF_diff", "s1_hXGA_diff", "s1_aXGF_diff", "s1_aXGA_diff" ),
+         c("Team", "homeXG_for_diff", "homeXG_against_diff", "awayXG_for_diff", "awayXG_against_diff"))
+
+s1_XG[, Net_GoalDiff_v_XGDiff := round((homeXG_for_diff - homeXG_against_diff) + (awayXG_for_diff - awayXG_against_diff), 2)][
+  order(Net_GoalDiff_v_XGDiff)
+]
+
+
+ggplot(s1_XG) +
+  geom_col(aes(reorder(Team, Net_GoalDiff_v_XGDiff), Net_GoalDiff_v_XGDiff, fill = Net_GoalDiff_v_XGDiff)) +
+  labs(title = "Season 1 Net Goal Difference vs Expected Net Goal Difference", fill = 'Probability') +
+  geom_label(aes(Team, Net_GoalDiff_v_XGDiff, label = Net_GoalDiff_v_XGDiff)) +
+  xlab("Team") +
+  ylab("Net Goal Diff vs XG Net Goal Diff") +
+  coord_flip()
 
